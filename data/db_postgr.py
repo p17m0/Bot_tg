@@ -54,8 +54,8 @@ def add_client(data):
     comments = data['comment']
     agent_id = data['telegramid']
     add_cliento = ("INSERT INTO clients "
-                   "(inn, contact_name, contacts, comments, agent_id) "
-                  f"VALUES ('{inn}', '{contact_name}', '{contacts}', '{comments}', '{agent_id}')")
+                   "(name, inn, contact_name, contacts, comments, objects, agent_id) "
+                  f"VALUES ('ne noll', '{inn}', '{contact_name}', '{contacts}', '{comments}', 'ne noll', '{agent_id}')")
     try:
         cursor.execute(add_cliento)
         # Make sure data is committed to the database

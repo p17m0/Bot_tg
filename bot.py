@@ -6,15 +6,14 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
-    JobQueue, # &&&&&&&&&&&&&&&&&&&
     ContextTypes,
     ConversationHandler,
     MessageHandler,
     filters,
 )
 
-from data import db_postgres
-
+from data import db_mysql
+from data import gmail
 load_dotenv()
 
 # Enable logging
@@ -34,7 +33,6 @@ keyboard = [
                 ['Отправить потенциального клиента'],
                 ['Запросить логин и пароль для доступа в личный кабинет'],
                 ['Запросить видеозвонок'],
-                ['Проверить статус сделок'],
             ]
 reply_markup = ReplyKeyboardMarkup(keyboard)
 
@@ -43,21 +41,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation and asks the user about their FIO."""
     user = update.message.from_user
     user_data = context.user_data
-    if not db_postgres.check_user(user.id):
+    if not db_mysql.check_user(user.id):
         user_data['START'] = True
         await update.message.reply_text("Здравствуйте!\nНапишите ваше полное имя")
         user_data[user.id] = {}
         user_data[user.id].update({'telegramid': user.id})
         return NAME
-    if db_postgres.check_activation(user.id):
+    if db_mysql.check_activation(user.id):
         reply_markup = ReplyKeyboardMarkup(keyboard)
         await update.message.reply_text("Здравствуйте!", reply_markup=reply_markup)
         return ConversationHandler.END
-    if db_postgres.check_user(user.id) and not db_postgres.check_activation(user.id):
+    if db_mysql.check_user(user.id) and not db_mysql.check_activation(user.id):
         while True:
             await update.message.reply_text('Ожидайте одобрения заявки')
-            time.sleep(25) # 21600
-            if db_postgres.check_activation(user.id):
+            time.sleep(2) # 21600
+            if db_mysql.check_activation(user.id):
                 await update.message.reply_text(
                     "Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
                     reply_markup=reply_markup
@@ -190,14 +188,14 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "Спасибо за предоставленные данные! Пожалуйста, ожидайте.",
     )
-    db_postgres.add_user(user_data[user.id])
+    db_mysql.add_user(user_data[user.id])
     print(user_data[user.id])
     user_data[user.id] = {}
     print(user_data[user.id])
-    context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя {user.id}')
+    await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя {user.id}')
     while True:
         time.sleep(5) # 21600
-        if db_postgres.check_activation(user.id):
+        if db_mysql.check_activation(user.id):
             await update.message.reply_text(
                 "Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
                 reply_markup=reply_markup
@@ -224,17 +222,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_login(update, context)
     if update.message.text == "Запросить видеозвонок":
         await ask_call(update, context)
-    if update.message.text == 'Проверить статус сделок':
-        user = update.message.from_user
-        old_message = ''
-        time.sleep(10)
-        new_message = db_postgres.take_deals_history(user.id)
-        if old_message != new_message:
-            old_message = new_message
-            await update.message.reply_text(
-                    f"{new_message}",
-                    reply_markup=reply_markup)
-
 
 async def inn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -265,32 +252,39 @@ async def comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data[user.id].update({'comment': update.message.text})
     print(user_data[user.id])
     # Собранные данные кладем в БД в таблицу clients
-    db_postgres.add_client(user_data[user.id])
+    db_mysql.add_client(user_data[user.id])
     # и отправляется уведомление на почту и в телегу админу
-    # send_mail
-    context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Сделана сделка пльзователем {user.id}')
+    gmail.send_email(user.id)
+    await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Сделана сделка пользователем {user.id}')
     user_data[user.id] = {}
+    user_data['user'] = user.id
     print(user_data[user.id])
     await update.message.reply_text(text='Ваша заявка на сделку была принята.'
                                          'Менеджер обработает ее и сделает на ее основе сделку и инициирует переговоры.'
                                          'Все события по сделке будут транслироваться вам в телеграм')
+    context.job_queue.run_repeating(alarm, 5, chat_id=user.id)
     return ConversationHandler.END
 
 async def ask_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
-    login, password = db_postgres.take_login_password(user.id)
+    login, password = db_mysql.take_login_password(user.id)
     await update.message.reply_text(text=f'Ваш логин: {login}; Пароль: {password}.')
 
 async def ask_call(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # send_email or send message to admin about call
+    user = update.message.from_user
+    await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Запрос звонка пользователем {user.id}')
     await update.message.reply_text(text='Запрос звонка...')
+
+async def alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the alarm message."""
+    job = context.job
+    message = db_mysql.take_deals_history(job.chat_id)
+    if message != 'Сделок нет':
+        await context.bot.send_message(job.chat_id, text=f"Уведомление {message}")
 
 async def timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text='Регистрация отменена')
-
-async def notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    time.sleep(5)
-    await update.message.reply_text(text='Нотификатион')
 
 def main() -> None:
     """Run the bot."""
@@ -327,7 +321,7 @@ def main() -> None:
         states={
             MENU: [MessageHandler(filters.TEXT, echo)],
             INN: [MessageHandler(filters.TEXT, inn)],
-
+            # NOTIFICATION ABOUT DEALS
             CONTACT_NAME: [MessageHandler(filters.TEXT, contact_name)],
             CONTACTS: [MessageHandler(filters.TEXT, contacts)],
             COMMENT: [MessageHandler(filters.TEXT, comment)],
