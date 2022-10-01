@@ -59,11 +59,9 @@ CREATE TABLE `agents` (
 DROP TABLE IF EXISTS `clients`;
 CREATE TABLE `clients` (
   `id` int(11) NOT NULL,
-  `name` text NOT NULL,
   `inn` varchar(222) NOT NULL,
   `contacts` text NOT NULL,
   `comments` text NOT NULL,
-  `objects` text NOT NULL,
   `contact_name` text NOT NULL,
   `agent_id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

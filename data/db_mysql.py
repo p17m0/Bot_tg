@@ -1,5 +1,4 @@
 import mysql.connector
-from mysql.connector import errorcode
 import os
 
 from dotenv import load_dotenv
@@ -9,30 +8,21 @@ user = os.getenv('DB_USER')
 password = os.getenv('DB_PASSWORD')
 host = os.getenv('DB_HOST')
 db = os.getenv('DB_NAME')
-print(user, password, host, db)
 
-cnx = mysql.connector.connect(user=user,
+
+def read_image(image):
+    with open(image, 'rb') as file:
+        binaryData = file.read()
+    return binaryData
+
+
+def add_user(data):
+    cnx = mysql.connector.connect(user=user,
                               password=password,
                               database=db,
                               host=host)
 
-cursor = cnx.cursor()
-
-def read_image(image):
-    fin = None
-    print(image)
-    try:
-        fin = open(image, "rb")
-        img = fin.read()
-        return img
-    except IOError as e:
-        print(f'Error {e.args[0]}, {e.args[1]}')
-        sys.exit(1)
-    finally:
-        if fin:
-            fin.close()
-
-def add_user(data):
+    cursor = cnx.cursor()
     email = data['email'] 
     fio = data['fio']
     obrazovanie = data['fio']
@@ -44,65 +34,126 @@ def add_user(data):
     resume = data['resume']
     photo = data['photo']
     photo = read_image(photo)
+
     telegramid = data['telegramid']
-    add_employee = ("INSERT INTO agents "
-                    "(email, fio, obrazovanie, samozan, city, opit, phone, date, resume, photo, telegramid) "
-                   f"VALUES ({email}, {fio}, {obrazovanie}, {samozan}, {city}, {opit}, {phone}, {date}, {resume}, {photo}, {telegramid})") # LOAD_FILE()
+    add_employee = (f"INSERT INTO agents (email, fio, obrazovanie, samozan, city, opit, phone, date, resume, photo, telegramid) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+    insert_tuple = email, fio, obrazovanie, samozan, city, opit, phone, date, resume, photo, telegramid
     try:
-        cursor.execute(add_employee)
+        cursor.execute(add_employee, insert_tuple)
         cnx.commit()
     except Exception as e:
         print(e)
+    finally:
+        cursor.close()
+        cnx.close()
+
 
 def add_client(data):
+    cnx = mysql.connector.connect(user=user,
+                              password=password,
+                              database=db,
+                              host=host)
+
+    cursor = cnx.cursor()
     inn = data['inn']
     contact_name = data['contact_name']
     contacts = data['contacts']
     comments = data['comment']
     agent_id = data['telegramid']
-    add_cliento = ("INSERT INTO agents "
-                   "(inn, contatc_name, contacts, comments, agent_id) "
-                  f"VALUES ({inn}, {contact_name}, {contacts}, {comments}, {agent_id})")
+    add_cliento = ("INSERT INTO clients (inn, contact_name, contacts, comments, agent_id) VALUES (%s,%s,%s,%s,%s)")
+    insert_clento = inn, contact_name, contacts, comments, agent_id
     try:
-        cursor.execute(add_cliento)
+        cursor.execute(add_cliento, insert_clento)
         cnx.commit()
     except Exception as e:
         print(e)
+    finally:
+        cursor.close()
+        cnx.close()
 
 def take_login_password(user_id):
-    query = ("SELECT email, password FROM agents "
-            f"WHERE telegramid = {user_id}")
-    cursor.execute(query)
-    print('takelogin', cursor)
-    return cursor
+    cnx = mysql.connector.connect(user=user,
+                              password=password,
+                              database=db,
+                              host=host)
+    try:
+        cursor = cnx.cursor()
+        query = (f"SELECT email, password FROM agents WHERE telegramid = '{user_id}'")
+        cursor.execute(query)
+        print('takelogin', cursor)
+        for i in cursor:
+            return i
+    finally:
+        cursor.close()
+        cnx.close()
 
 def check_user(user_id):
-    query = ("SELECT telegramid FROM agents "
-            f"WHERE telegramid = {user_id}")
-    cursor.execute(query)
-    print('checkuser', cursor)
-    if user_id in cursor:
-        return True
-    return False 
+    cnx = mysql.connector.connect(user=user,
+                              password=password,
+                              database=db,
+                              host=host)
+
+    cursor = cnx.cursor()
+    print('check_user')
+    query = (f"SELECT telegramid FROM agents WHERE telegramid = '{user_id}'")
+    try:
+        cursor.execute(query)
+        for i in cursor:
+            if user_id in i:
+                return True
+            return False
+    except:
+        return False 
+    finally:
+        cursor.close()
+        cnx.close()
 
 def check_activation(user_id):
+    cnx = mysql.connector.connect(user=user,
+                              password=password,
+                              database=db,
+                              host=host)
+
+    cursor = cnx.cursor()
+    print('check_activation')
     query = ("SELECT activation FROM agents "
-            f"WHERE telegramid = {user_id}")
-    cursor.execute(query)
-    print('checkactivation', cursor)
-    if 1 in cursor:
-        # обязательно ли переключение на 2?
-        return True
-    return False
+            f"WHERE telegramid = '{user_id}'")
+    try:
+        cursor.execute(query)
+        for i in cursor:
+            print(i)
+            if 1 in i:
+                cursor.execute("UPDATE agents SET activation = 2 "
+                              f"WHERE telegramid = '{user_id}'")
+                cnx.commit()
+                # обязательно ли переключение на 2?
+                return True
+            if 2 in i:
+                return True
+    except:
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
 
 def take_deals_history(user_id):
-    query = ("SELECT message from deals_history "
-             "WHERE id = (SELECT deals_id FROM deals "
-            f"WHERE agent_id = {user_id})")
-    cursor.execute(query)
-    print('take_deals_history', cursor)
-    return cursor
+    cnx = mysql.connector.connect(user=user,
+                              password=password,
+                              database=db,
+                              host=host)
 
-
-cursor.close()
-cnx.close()
+    cursor = cnx.cursor()
+    query = (f"SELECT message from deals_history WHERE id = (SELECT deals_id FROM deals WHERE agent_id = '{user_id}')")
+    try:
+        cursor.execute(query)
+        print('take_deals_history', cursor)
+        datum = cursor.fetchall()
+        print(datum)
+        if datum == []:
+            return 'Сделок нет'
+        return cursor
+    except Exception as e:
+        print(e)
+    finally:
+        cursor.close()
+        cnx.close()

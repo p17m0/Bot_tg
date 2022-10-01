@@ -6,6 +6,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
+    PicklePersistence,
     ContextTypes,
     ConversationHandler,
     MessageHandler,
@@ -26,6 +27,7 @@ NAME, EDUCATION, YEAR, LOCATION, EXPERIENCE, WORK_BEFORE, RESUME, PHONE, EMAIL, 
 MENU, INN, CONTACT_NAME, CONTACTS, COMMENT = 99, 100, 101, 102, 103
 TIME_FOR_REGISTRATION = 360 # 6 минут
 TIME_FOR_WAITING = 21600 # 6 часов
+TIME_FOR_CONTEXT_JOB = 1440 # 24 минуты 
 TIME_FOR_WAITING_STATUS = 720 # 12 минут
 ADMIN_TG_ID = os.getenv('ADMIN_TG_ID')
 
@@ -33,6 +35,7 @@ keyboard = [
                 ['Отправить потенциального клиента'],
                 ['Запросить логин и пароль для доступа в личный кабинет'],
                 ['Запросить видеозвонок'],
+                ['Запустить уведомления о сделках']
             ]
 reply_markup = ReplyKeyboardMarkup(keyboard)
 
@@ -48,19 +51,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_data[user.id].update({'telegramid': user.id})
         return NAME
     if db_mysql.check_activation(user.id):
-        reply_markup = ReplyKeyboardMarkup(keyboard)
         await update.message.reply_text("Здравствуйте!", reply_markup=reply_markup)
         return ConversationHandler.END
     if db_mysql.check_user(user.id) and not db_mysql.check_activation(user.id):
-        while True:
-            await update.message.reply_text('Ожидайте одобрения заявки')
-            time.sleep(2) # 21600
-            if db_mysql.check_activation(user.id):
-                await update.message.reply_text(
-                    "Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
-                    reply_markup=reply_markup
-                )
-                return ConversationHandler.END
+        await update.message.reply_text('Ожидайте одобрения заявки')
+        context.job_queue.run_once(activation_alarm, 2, chat_id=user.id)
+        return ConversationHandler.END
 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,7 +84,7 @@ async def education(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data[user.id].update({'obrazovanie': update.message.text})
     logger.info("education of %s: %s", user.first_name, update.message.text)
     await update.message.reply_text(
-        "Укажите ваш год рождения в формате ГГГГ-ММ-ДД",
+        "Укажите ваш год рождения в формате ДД.MM.ГГГГ",
     )
 
     return YEAR
@@ -193,14 +189,9 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data[user.id] = {}
     print(user_data[user.id])
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя {user.id}')
-    while True:
-        time.sleep(5) # 21600
-        if db_mysql.check_activation(user.id):
-            await update.message.reply_text(
-                "Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
-                reply_markup=reply_markup
-            )
-            return ConversationHandler.END
+    await update.message.reply_text('Ожидайте одобрения заявки')
+    context.job_queue.run_repeating(activation_alarm, interval=2, chat_id=user.id)
+    return ConversationHandler.END
 
 
 
@@ -222,6 +213,10 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_login(update, context)
     if update.message.text == "Запросить видеозвонок":
         await ask_call(update, context)
+    if update.message.text == "Запустить уведомления о сделках":
+        print('запустить уведомления')
+        user = update.message.from_user
+        context.job_queue.run_repeating(alarm, TIME_FOR_CONTEXT_JOB, chat_id=user.id)
 
 async def inn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -262,7 +257,6 @@ async def comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text='Ваша заявка на сделку была принята.'
                                          'Менеджер обработает ее и сделает на ее основе сделку и инициирует переговоры.'
                                          'Все события по сделке будут транслироваться вам в телеграм')
-    context.job_queue.run_repeating(alarm, 5, chat_id=user.id)
     return ConversationHandler.END
 
 async def ask_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -276,12 +270,20 @@ async def ask_call(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Запрос звонка пользователем {user.id}')
     await update.message.reply_text(text='Запрос звонка...')
 
+async def activation_alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the alarm message."""
+    job = context.job
+    if db_mysql.check_activation(job.chat_id):
+        await context.bot.send_message(job.chat_id, text=f"Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
+            reply_markup=reply_markup)
+        job.schedule_removal()
+
 async def alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the alarm message."""
     job = context.job
     message = db_mysql.take_deals_history(job.chat_id)
     if message != 'Сделок нет':
-        await context.bot.send_message(job.chat_id, text=f"Уведомление {message}")
+        await context.bot.send_message(job.chat_id, text=f"Уведомление: {message}")
 
 async def timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text='Регистрация отменена')
@@ -289,6 +291,7 @@ async def timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main() -> None:
     """Run the bot."""
     token = os.getenv('TOKEN')
+    # persistence = PicklePersistence(filepath="conversationbot")
     # Create the Application and pass it your bot's token.
     app = Application.builder().token(token).build()
 
@@ -311,12 +314,13 @@ def main() -> None:
         conversation_timeout=TIME_FOR_REGISTRATION,
         fallbacks=[CommandHandler('cancelito', cancel)],
     )
+
     offer_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Text([
             'Отправить потенциального клиента',
             'Запросить логин и пароль для доступа в личный кабинет',
             'Запросить видеозвонок',
-            'Проверить статус сделок',
+            'Запустить уведомления о сделках',
             ]), echo)],
         states={
             MENU: [MessageHandler(filters.TEXT, echo)],
@@ -326,7 +330,8 @@ def main() -> None:
             CONTACTS: [MessageHandler(filters.TEXT, contacts)],
             COMMENT: [MessageHandler(filters.TEXT, comment)],
         },
-        fallbacks=[CommandHandler('cancelito', cancel)]
+        fallbacks=[CommandHandler('cancelito', cancel)],
+        name="my_conversation",
     )
     app.add_handler(conv_handler)
     app.add_handler(offer_handler)
