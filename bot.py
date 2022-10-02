@@ -24,10 +24,9 @@ logger = logging.getLogger(__name__)
 
 NAME, EDUCATION, YEAR, LOCATION, EXPERIENCE, WORK_BEFORE, RESUME, PHONE, EMAIL, PHOTO, LOCATION, WAIT = range(12)
 MENU, INN, CONTACT_NAME, CONTACTS, COMMENT = 99, 100, 101, 102, 103
-TIME_FOR_REGISTRATION = 360 # 6 минут
-TIME_FOR_WAITING = 21600 # 6 часов
-TIME_FOR_CONTEXT_JOB = 1440 # 24 минуты 
-TIME_FOR_WAITING_STATUS = 720 # 12 минут
+TIME_FOR_REGISTRATION = 1800 # 30 минут
+TIME_FOR_WAITING = 172800 # 48 часов - одобрение
+TIME_FOR_STATUS_DEAL = 1800 # 30 минут
 ADMIN_TG_ID = os.getenv('ADMIN_TG_ID')
 
 keyboard = [
@@ -54,7 +53,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     if db_mysql.check_user(user.id) and not db_mysql.check_activation(user.id):
         await update.message.reply_text('Ожидайте одобрения заявки')
-        context.job_queue.run_once(activation_alarm, 2, chat_id=user.id)
+        context.job_queue.run_once(activation_alarm, TIME_FOR_WAITING, chat_id=user.id)
         return ConversationHandler.END
 
 
@@ -189,7 +188,7 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     print(user_data[user.id])
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя {user.id}')
     await update.message.reply_text('Ожидайте одобрения заявки')
-    context.job_queue.run_repeating(activation_alarm, interval=2, chat_id=user.id)
+    context.job_queue.run_repeating(activation_alarm, interval=TIME_FOR_WAITING, chat_id=user.id)
     return ConversationHandler.END
 
 
@@ -216,7 +215,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "Запустить уведомления о сделках":
         print('запустить уведомления')
         user = update.message.from_user
-        context.job_queue.run_repeating(alarm, 2, chat_id=user.id)
+        context.job_queue.run_repeating(alarm, TIME_FOR_STATUS_DEAL, chat_id=user.id)
 
 async def inn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("inn")
@@ -295,7 +294,6 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main() -> None:
     """Run the bot."""
     token = os.getenv('TOKEN')
-    # persistence = PicklePersistence(filepath="conversationbot")
     # Create the Application and pass it your bot's token.
     app = Application.builder().token(token).build()
 
@@ -329,7 +327,6 @@ def main() -> None:
         states={
             MENU: [MessageHandler(filters.TEXT, echo)],
             INN: [MessageHandler(filters.TEXT, inn)],
-            # NOTIFICATION ABOUT DEALS
             CONTACT_NAME: [MessageHandler(filters.TEXT, contact_name)],
             CONTACTS: [MessageHandler(filters.TEXT, contacts)],
             COMMENT: [MessageHandler(filters.TEXT, comment)],
@@ -341,7 +338,6 @@ def main() -> None:
     app.add_handler(offer_handler)
     show_menus = CommandHandler('menu', show_menu)
     app.add_handler(show_menus)
-    # Run the bot until the user presses Ctrl-C
     app.run_polling()
 
 
