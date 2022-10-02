@@ -6,7 +6,6 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
-    PicklePersistence,
     ContextTypes,
     ConversationHandler,
     MessageHandler,
@@ -206,6 +205,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("echo")
     if update.message.text == "Отправить потенциального клиента":
         await update.message.reply_text(text='Укажите название компании, инн')
         return INN
@@ -216,9 +216,10 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "Запустить уведомления о сделках":
         print('запустить уведомления')
         user = update.message.from_user
-        context.job_queue.run_repeating(alarm, TIME_FOR_CONTEXT_JOB, chat_id=user.id)
+        context.job_queue.run_repeating(alarm, 2, chat_id=user.id)
 
 async def inn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("inn")
     user = update.message.from_user
     user_data = context.user_data
     user_data[user.id] = {}
@@ -228,6 +229,7 @@ async def inn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONTACT_NAME
 
 async def contact_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("contact_name")
     user = update.message.from_user
     user_data = context.user_data
     user_data[user.id].update({'contact_name': update.message.text})
@@ -235,6 +237,7 @@ async def contact_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONTACTS
 
 async def contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("contacts")
     user = update.message.from_user
     user_data = context.user_data
     user_data[user.id].update({'contacts': update.message.text})
@@ -245,7 +248,6 @@ async def comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_data = context.user_data
     user_data[user.id].update({'comment': update.message.text})
-    print(user_data[user.id])
     # Собранные данные кладем в БД в таблицу clients
     db_mysql.add_client(user_data[user.id])
     # и отправляется уведомление на почту и в телегу админу
@@ -253,7 +255,6 @@ async def comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Сделана сделка пользователем {user.id}')
     user_data[user.id] = {}
     user_data['user'] = user.id
-    print(user_data[user.id])
     await update.message.reply_text(text='Ваша заявка на сделку была принята.'
                                          'Менеджер обработает ее и сделает на ее основе сделку и инициирует переговоры.'
                                          'Все события по сделке будут транслироваться вам в телеграм')
@@ -274,7 +275,7 @@ async def activation_alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the alarm message."""
     job = context.job
     if db_mysql.check_activation(job.chat_id):
-        await context.bot.send_message(job.chat_id, text=f"Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый.",
+        await context.bot.send_message(job.chat_id, text=f"Ваша заявка одобрена. Теперь вы являетесь нашим региональным представителем. Просьба зарегистрироваться как самозанятый. Если у Вас пропадёт меню - напишите в чате команду /menu",
             reply_markup=reply_markup)
         job.schedule_removal()
 
@@ -283,10 +284,13 @@ async def alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
     message = db_mysql.take_deals_history(job.chat_id)
     if message != 'Сделок нет':
-        await context.bot.send_message(job.chat_id, text=f"Уведомление: {message}")
+        await context.bot.send_message(job.chat_id, text=message)
 
 async def timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text='Регистрация отменена')
+
+async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(text='Выполнена команда показа меню.', reply_markup=reply_markup)
 
 def main() -> None:
     """Run the bot."""
@@ -335,6 +339,8 @@ def main() -> None:
     )
     app.add_handler(conv_handler)
     app.add_handler(offer_handler)
+    show_menus = CommandHandler('menu', show_menu)
+    app.add_handler(show_menus)
     # Run the bot until the user presses Ctrl-C
     app.run_polling()
 

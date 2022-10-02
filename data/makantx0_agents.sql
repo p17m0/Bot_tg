@@ -95,6 +95,7 @@ CREATE TABLE `deals` (
 DROP TABLE IF EXISTS `deals_history`;
 CREATE TABLE `deals_history` (
   `id` int(11) NOT NULL,
+  `deals_id` int(11) NOT NULL,
   `date` datetime NOT NULL,
   `message` text NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

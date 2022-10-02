@@ -143,7 +143,8 @@ def take_deals_history(user_id):
                               host=host)
 
     cursor = cnx.cursor()
-    query = (f"SELECT message from deals_history WHERE id = (SELECT deals_id FROM deals WHERE agent_id = '{user_id}')")
+    
+    query = (f"SELECT message, sended_agent from deals_history WHERE deals_id = (SELECT deals_id FROM deals WHERE agent_id = '{user_id}')")  
     try:
         cursor.execute(query)
         print('take_deals_history', cursor)
@@ -151,7 +152,20 @@ def take_deals_history(user_id):
         print(datum)
         if datum == []:
             return 'Сделок нет'
-        return cursor
+        for lst in datum:
+            if lst[1] == True:
+                continue
+            if lst[1] == False:
+                print(lst)
+                query = ("UPDATE deals_history SET sended_agent = 1 "
+                        f"WHERE deals_id = (SELECT deals_id FROM deals WHERE agent_id = '{user_id}')")
+                cursor.execute(query)
+                cnx.commit()
+                print(cursor)
+                return lst[0]
+        else:
+            return 'Сделок нет'
+        
     except Exception as e:
         print(e)
     finally:
