@@ -19,6 +19,7 @@ def send_email(user_id):
         msg = MIMEText(message)
         msg['Subject'] = 'Уведомление о сделке!'
         server.sendmail(sender, sender, msg.as_string())
+        server.sendmail(sender, 'info@energoport.com', msg.as_string())
         return True
     except Exception as e:
         return e
