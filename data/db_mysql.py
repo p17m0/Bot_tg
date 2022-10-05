@@ -47,6 +47,23 @@ def add_user(data):
         cursor.close()
         cnx.close()
 
+def take_user_data(user_id):
+    cnx = mysql.connector.connect(user=user,
+                                  password=password,
+                                  database=db,
+                                  host=host)
+
+    cursor = cnx.cursor()
+    try:
+        cursor = cnx.cursor()
+        query = (f"SELECT email, phone, fio FROM agents WHERE telegramid = '{user_id}'")
+        cursor.execute(query)
+        print('takeUserData', cursor)
+        for i in cursor:
+            return i
+    finally:
+        cursor.close()
+        cnx.close()
 
 def add_client(data):
     cnx = mysql.connector.connect(user=user,
@@ -171,3 +188,4 @@ def take_deals_history(user_id):
     finally:
         cursor.close()
         cnx.close()
+# ssh root@45.84.224.26

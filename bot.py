@@ -18,6 +18,7 @@ load_dotenv()
 
 # Enable logging
 logging.basicConfig(
+    filename="logfilename.log",
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
@@ -184,9 +185,10 @@ async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     db_mysql.add_user(user_data[user.id])
     print(user_data[user.id])
+    await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя, данные: {user_data[user.id]}')
+    gmail.send_email(user_data[user.id])
     user_data[user.id] = {}
     print(user_data[user.id])
-    await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Появилась заявка на регистрацию от пользователя {user.id}')
     await update.message.reply_text('Ожидайте одобрения заявки')
     context.job_queue.run_repeating(activation_alarm, interval=TIME_FOR_WAITING, chat_id=user.id)
     return ConversationHandler.END
@@ -250,7 +252,7 @@ async def comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Собранные данные кладем в БД в таблицу clients
     db_mysql.add_client(user_data[user.id])
     # и отправляется уведомление на почту и в телегу админу
-    gmail.send_email(user.id)
+    gmail.send_email_deal(user_data[user.id])
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Сделана сделка пользователем {user.id}')
     user_data[user.id] = {}
     user_data['user'] = user.id
@@ -267,8 +269,10 @@ async def ask_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_call(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # send_email or send message to admin about call
     user = update.message.from_user
+    data = db_mysql.take_user_data(user.id)
+    gmail.send_email_call(data)
     await context.bot.send_message(chat_id=ADMIN_TG_ID, text=f'Запрос звонка пользователем {user.id}')
-    await update.message.reply_text(text='Запрос звонка...')
+    await update.message.reply_text(text='Вы запросили связь с нашим менеджером. Вам ответят в личные сообщения телеграм, если это возможно. Либо перезвонят по телефону, указанному при регистрации')
 
 async def activation_alarm(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the alarm message."""
